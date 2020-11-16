@@ -20,8 +20,6 @@ def main(args):
     splits = ['train', 'valid'] + (['test'] if args.test else [])
 
     datasets = OrderedDict()
-
-
     for split in splits:
         datasets[split] = PTB(
             data_dir=args.data_dir,
@@ -29,20 +27,7 @@ def main(args):
             create_data=args.create_data,
             max_sequence_length=args.max_sequence_length,
             min_occ=args.min_occ
-
         )
-    #print(datasets["train"])
-    #print(datasets["train"][0])
-    #print(datasets["train"][1])
-    #print(datasets["train"][2])
-    #for i in range(30):
-    #    print(datasets["train"][i]["input"])
-
-    #print(args.data_dir)
-    #print(args.create_data)
-    #print(args.max_sequence_length)
-    #print(args.min_occ)
-
 
     params = dict(
         vocab_size=datasets['train'].vocab_size,
@@ -66,8 +51,6 @@ def main(args):
         model = model.cuda()
 
     print(model)
-    model_save_folder = "abc"
-    dump_folder = "dumpname"
 
     if args.tensorboard_logging:
         writer = SummaryWriter(os.path.join(args.logdir, expierment_name(args, ts)))
@@ -75,11 +58,8 @@ def main(args):
         writer.add_text("args", str(args))
         writer.add_text("ts", ts)
 
-    #save_model_path = os.path.join(args.save_model_path, ts)
-    save_model_path = args.save_model_path + "/" + model_save_folder
-
-    #os.makedirs(save_model_path)
-    #os.mkdir(save_model_path)
+    save_model_path = os.path.join(args.save_model_path, ts)
+    os.makedirs(save_model_path)
 
     with open(os.path.join(save_model_path, 'model_params.json'), 'w') as f:
         json.dump(params, f, indent=4)
@@ -94,12 +74,11 @@ def main(args):
     def loss_fn(logp, target, length, mean, logv, anneal_function, step, k, x0):
 
         # cut-off unnecessary padding from target, and flatten
-        #target = target[:, :torch.max(length).item()].contiguous().view(-1)
-        target = target[:, :].contiguous().view(-1)
+        target = target[:, :torch.max(length).item()].contiguous().view(-1)
         logp = logp.view(-1, logp.size(2))
 
         # Negative Log Likelihood
-        NLL_loss = NLL(logp, target.type(torch.long))
+        NLL_loss = NLL(logp, target)
 
         # KL Divergence
         KL_loss = -0.5 * torch.sum(1 + logv - mean.pow(2) - logv.exp())
@@ -110,7 +89,6 @@ def main(args):
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 
     tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.Tensor
-    #tensor = torch.cuda.FloatTensor if False else torch.Tensor
     step = 0
     for epoch in range(args.epochs):
 
@@ -188,9 +166,9 @@ def main(args):
             # save a dump of all sentences and the encoded latent space
             if split == 'valid':
                 dump = {'target_sents': tracker['target_sents'], 'z': tracker['z'].tolist()}
-                if not os.path.exists(os.path.join('dumps', dump_folder)):
-                    os.makedirs('dumps/'+dump_folder)
-                with open(os.path.join('dumps/'+dump_folder+'/valid_E%i.json' % epoch), 'w') as dump_file:
+                if not os.path.exists(os.path.join('dumps', ts)):
+                    os.makedirs('dumps/'+ts)
+                with open(os.path.join('dumps/'+ts+'/valid_E%i.json' % epoch), 'w') as dump_file:
                     json.dump(dump,dump_file)
 
             # save checkpoint
@@ -209,16 +187,15 @@ if __name__ == '__main__':
     parser.add_argument('--min_occ', type=int, default=1)
     parser.add_argument('--test', action='store_true')
 
-    parser.add_argument('-ep', '--epochs', type=int, default=1)
-    parser.add_argument('-bs', '--batch_size', type=int, default=64)
+    parser.add_argument('-ep', '--epochs', type=int, default=10)
+    parser.add_argument('-bs', '--batch_size', type=int, default=32)
     parser.add_argument('-lr', '--learning_rate', type=float, default=0.001)
 
     parser.add_argument('-eb', '--embedding_size', type=int, default=300)
     parser.add_argument('-rnn', '--rnn_type', type=str, default='gru')
     parser.add_argument('-hs', '--hidden_size', type=int, default=256)
     parser.add_argument('-nl', '--num_layers', type=int, default=1)
-    #parser.add_argument('-bi', '--bidirectional', action='store_true')
-    parser.add_argument('-bi', '--bidirectional', type=bool, default=True)
+    parser.add_argument('-bi', '--bidirectional', action='store_true')
     parser.add_argument('-ls', '--latent_size', type=int, default=16)
     parser.add_argument('-wd', '--word_dropout', type=float, default=0)
     parser.add_argument('-ed', '--embedding_dropout', type=float, default=0.5)
