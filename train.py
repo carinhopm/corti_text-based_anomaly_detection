@@ -66,8 +66,8 @@ def main(args):
         model = model.cuda()
 
     print(model)
-    model_save_folder = "abc"
-    dump_folder = "dumpname"
+    model_save_folder = "Saved_models"
+    dump_folder = "dump"
 
     if args.tensorboard_logging:
         writer = SummaryWriter(os.path.join(args.logdir, expierment_name(args, ts)))
