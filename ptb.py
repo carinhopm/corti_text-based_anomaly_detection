@@ -1,3 +1,4 @@
+#This is modified so that input and target are now the same
 import os
 import io
 import json
@@ -92,36 +93,36 @@ class PTB(Dataset):
     def _create_data(self):
 
         if self.split == 'train':
-            self._create_vocab()
+            self._create_vocab()                        #need vocabulary before we can work
         else:
             self._load_vocab()
 
-        tokenizer = TweetTokenizer(preserve_case=False)
+        tokenizer = TweetTokenizer(preserve_case=False) #A splitter of sentences made for tweets
 
-        data = defaultdict(dict)
-        with open(self.raw_data_path, 'r') as file:
+        data = defaultdict(dict)                        #A dictionary
+        with open(self.raw_data_path, 'r') as file:     #Opens datafile
 
-            for i, line in enumerate(file):
+            for i, line in enumerate(file):             #lineindex, line in file
 
-                words = tokenizer.tokenize(line)
+                words = tokenizer.tokenize(line)        #split line according to tweettokenizer into words.
 
-                input = ['<sos>'] + words
-                input = input[:self.max_sequence_length]
+                input = ['<sos>'] + words               #<sos> in start
+                input = input[:self.max_sequence_length-1] #making so that inputs and targets are missing end and start respectively.
+                input = input + ['<eos>']
 
-                target = words[:self.max_sequence_length-1]
-                target = target + ['<eos>']
+                target = input.clone()
 
                 assert len(input) == len(target), "%i, %i"%(len(input), len(target))
-                length = len(input)
+                length = len(input)                     #defining length of sentence
 
-                input.extend(['<pad>'] * (self.max_sequence_length-length))
+                input.extend(['<pad>'] * (self.max_sequence_length-length)) #adds padding to end up till max sequence length
                 target.extend(['<pad>'] * (self.max_sequence_length-length))
 
-                input = [self.w2i.get(w, self.w2i['<unk>']) for w in input]
-                target = [self.w2i.get(w, self.w2i['<unk>']) for w in target]
+                input = [self.w2i.get(w, self.w2i['<unk>']) for w in input]   #For each word in input search for word index in vocabulary or return 1 (for unknown) instead
+                target = [self.w2i.get(w, self.w2i['<unk>']) for w in target] #Same for target.
 
-                id = len(data)
-                data[id]['input'] = input
+                id = len(data)                                                #index of the line, could use i
+                data[id]['input'] = input                                     #data[line-index]["input"] er inputtet i talformatet.
                 data[id]['target'] = target
                 data[id]['length'] = length
 
@@ -135,35 +136,35 @@ class PTB(Dataset):
 
         assert self.split == 'train', "Vocablurary can only be created for training file."
 
-        tokenizer = TweetTokenizer(preserve_case=False)
+        tokenizer = TweetTokenizer(preserve_case=False)         #sentence splitter for tweets
 
-        w2c = OrderedCounter()
+        w2c = OrderedCounter()                                  #All three are dictionary like stuff
         w2i = dict()
         i2w = dict()
 
-        special_tokens = ['<pad>', '<unk>', '<sos>', '<eos>']
+        special_tokens = ['<pad>', '<unk>', '<sos>', '<eos>'] #padding, unknown, start, end
         for st in special_tokens:
-            i2w[len(w2i)] = st
-            w2i[st] = len(w2i)
+            i2w[len(w2i)] = st                                #word of index 0,1,2,3 is special_tokens
+            w2i[st] = len(w2i)                                #index of special token is 0,1,2,3
 
-        with open(self.raw_data_path, 'r') as file:
+        with open(self.raw_data_path, 'r') as file:           #opening data file
 
-            for i, line in enumerate(file):
-                words = tokenizer.tokenize(line)
-                w2c.update(words)
+            for i, line in enumerate(file):                  #index of line, line
+                words = tokenizer.tokenize(line)             #line split
+                w2c.update(words)                            #makes a dictionary of words with counts order by which words it first encountered.
 
-            for w, c in w2c.items():
-                if c > self.min_occ and w not in special_tokens:
-                    i2w[len(w2i)] = w
-                    w2i[w] = len(w2i)
+            for w, c in w2c.items():                        #word, count
+                if c > self.min_occ and w not in special_tokens: #IF not too few counts
+                    i2w[len(w2i)] = w                       #word of index
+                    w2i[w] = len(w2i)                       #index of word
 
         assert len(w2i) == len(i2w)
 
         print("Vocablurary of %i keys created." %len(w2i))
 
-        vocab = dict(w2i=w2i, i2w=i2w)
-        with io.open(os.path.join(self.data_dir, self.vocab_file), 'wb') as vocab_file:
+        vocab = dict(w2i=w2i, i2w=i2w)                    #vocabulary consists of word to index and index to word.
+        with io.open(os.path.join(self.data_dir, self.vocab_file), 'wb') as vocab_file: #Safe vocabulary
             data = json.dumps(vocab, ensure_ascii=False)
             vocab_file.write(data.encode('utf8', 'replace'))
 
-        self._load_vocab()
+        self._load_vocab()                                  #load it where you saved it.

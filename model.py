@@ -1,3 +1,4 @@
+#This has been modified so that it no longer uses the input sequence in the output
 import torch
 import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
@@ -10,6 +11,8 @@ class SentenceVAE(nn.Module):
 
         super().__init__()
         self.tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.Tensor
+        #self.tensor = torch.cuda.FloatTensor if False else torch.Tensor
+
 
         self.max_sequence_length = max_sequence_length
         self.sos_idx = sos_idx
@@ -24,7 +27,7 @@ class SentenceVAE(nn.Module):
         self.num_layers = num_layers
         self.hidden_size = hidden_size
 
-        self.embedding = nn.Embedding(vocab_size, embedding_size)
+        self.embedding = nn.Embedding(vocab_size, embedding_size) #given our vocabulary size and a choice of embedding_size we can make vectors for our vocabulary representing correlations and not assuming orthogonality.
         self.word_dropout_rate = word_dropout
         self.embedding_dropout = nn.Dropout(p=embedding_dropout)
 
@@ -36,18 +39,26 @@ class SentenceVAE(nn.Module):
         #     rnn = nn.LSTM
         else:
             raise ValueError()
+        self.hidden_factor = (2 if self.bidirectional else 1) * num_layers
+        self.encoder_rnn_out_size_full =  self.max_sequence_length*self.hidden_size*self.hidden_factor
+        self.decoder_rnn_out_size = int(embedding_size/self.hidden_factor)
+        self.decoder_rnn_in_size = hidden_size*self.hidden_factor
+
 
         self.encoder_rnn = rnn(embedding_size, hidden_size, num_layers=num_layers, bidirectional=self.bidirectional,
                                batch_first=True)
-        self.decoder_rnn = rnn(embedding_size, hidden_size, num_layers=num_layers, bidirectional=self.bidirectional,
+        #self.decoder_rnn = rnn(embedding_size, hidden_size, num_layers=num_layers, bidirectional=self.bidirectional,
+        #                       batch_first=True)
+
+        self.decoder_rnn = rnn(self.decoder_rnn_in_size, self.decoder_rnn_out_size, num_layers=num_layers, bidirectional=self.bidirectional,
                                batch_first=True)
 
-        self.hidden_factor = (2 if bidirectional else 1) * num_layers
-
-        self.hidden2mean = nn.Linear(hidden_size * self.hidden_factor, latent_size)
-        self.hidden2logv = nn.Linear(hidden_size * self.hidden_factor, latent_size)
-        self.latent2hidden = nn.Linear(latent_size, hidden_size * self.hidden_factor)
-        self.outputs2vocab = nn.Linear(hidden_size * (2 if bidirectional else 1), vocab_size)
+        #self.hidden2mean = nn.Linear(hidden_size * self.hidden_factor, latent_size)
+        #self.hidden2logv = nn.Linear(hidden_size * self.hidden_factor, latent_size)
+        self.hidden2mean = nn.Linear(self.encoder_rnn_out_size_full, latent_size)
+        self.hidden2logv = nn.Linear(self.encoder_rnn_out_size_full, latent_size)
+        self.latent2hidden = nn.Linear(latent_size, self.encoder_rnn_out_size_full)
+        self.outputs2vocab = nn.Linear(embedding_size, vocab_size)
 
     def forward(self, input_sequence, length):
 
@@ -56,64 +67,48 @@ class SentenceVAE(nn.Module):
         input_sequence = input_sequence[sorted_idx]
 
         # ENCODER
-        input_embedding = self.embedding(input_sequence)
+        input_embedding = self.embedding(input_sequence.type(torch.long))   #Translates the words into vectors with correlations.
 
-        packed_input = rnn_utils.pack_padded_sequence(input_embedding, sorted_lengths.data.tolist(), batch_first=True)
+        mean,logv = encoder(input_embedding,batch_size)
 
-        _, hidden = self.encoder_rnn(packed_input)
-
-        if self.bidirectional or self.num_layers > 1:
-            # flatten hidden state
-            hidden = hidden.view(batch_size, self.hidden_size*self.hidden_factor)
-        else:
-            hidden = hidden.squeeze()
 
         # REPARAMETERIZATION
-        mean = self.hidden2mean(hidden)
-        logv = self.hidden2logv(hidden)
+
         std = torch.exp(0.5 * logv)
 
-        z = to_var(torch.randn([batch_size, self.latent_size]))
-        z = z * std + mean
+        eps = to_var(torch.randn([batch_size, self.latent_size]))
+        z = eps * std + mean #This is creating a number from the sitribution, nice
 
         # DECODER
-        hidden = self.latent2hidden(z)
 
-        if self.bidirectional or self.num_layers > 1:
-            # unflatten hidden state
-            hidden = hidden.view(self.hidden_factor, batch_size, self.hidden_size)
-        else:
-            hidden = hidden.unsqueeze(0)
+        outputs = decoder(z,batch_size)
 
-        # decoder input
-        if self.word_dropout_rate > 0:
-            # randomly replace decoder input with <unk>
-            prob = torch.rand(input_sequence.size())
-            if torch.cuda.is_available():
-                prob=prob.cuda()
-            prob[(input_sequence.data - self.sos_idx) * (input_sequence.data - self.pad_idx) == 0] = 1
-            decoder_input_sequence = input_sequence.clone()
-            decoder_input_sequence[prob < self.word_dropout_rate] = self.unk_idx
-            input_embedding = self.embedding(decoder_input_sequence)
-        input_embedding = self.embedding_dropout(input_embedding)
-        packed_input = rnn_utils.pack_padded_sequence(input_embedding, sorted_lengths.data.tolist(), batch_first=True)
+        logp = nn.functional.log_softmax(self.outputs2vocab(outputs), dim=-1)
 
-        # decoder forward pass
-        outputs, _ = self.decoder_rnn(packed_input, hidden)
-
-        # process outputs
-        padded_outputs = rnn_utils.pad_packed_sequence(outputs, batch_first=True)[0]
-        padded_outputs = padded_outputs.contiguous()
-        _,reversed_idx = torch.sort(sorted_idx)
-        padded_outputs = padded_outputs[reversed_idx]
-        b,s,_ = padded_outputs.size()
-
-        # project outputs to vocab
-        logp = nn.functional.log_softmax(self.outputs2vocab(padded_outputs.view(-1, padded_outputs.size(2))), dim=-1)
-        logp = logp.view(b, s, self.embedding.num_embeddings)
 
         return logp, mean, logv, z
 
+    def encoder(self,x,batch_size):
+        ##What I have worked with in RNN
+        encoder_rnn_out, _ = self.encoder_rnn(input_embedding)
+        hidden = encoder_rnn_out
+        hidden = torch.reshape(hidden,(batch_size, self.encoder_rnn_out_size_full))
+        ##What I have worked with in RNN
+        mean = self.hidden2mean(hidden)
+        logv = self.hidden2logv(hidden)
+
+        return mean, logv
+
+    def decoder(self,z,batch_size):
+        decoder_hidden = self.latent2hidden(z)
+        ##What I have worked with in RNN
+        decoder_hidden = decoder_hidden.view(batch_size, self.max_sequence_length,self.hidden_size*self.hidden_factor)
+        outputs, _ = self.decoder_rnn(decoder_hidden)
+        ##What I have worked with in RNN
+
+        return outputs
+
+#I AM CURRENTLY EDITING INFERENCE TO WORK WITH THE NEW ARCHITECTURE.
     def inference(self, n=4, z=None):
 
         if z is None:
@@ -124,11 +119,13 @@ class SentenceVAE(nn.Module):
 
         hidden = self.latent2hidden(z)
 
-        if self.bidirectional or self.num_layers > 1:
+#        if self.bidirectional or self.num_layers > 1:
             # unflatten hidden state
-            hidden = hidden.view(self.hidden_factor, batch_size, self.hidden_size)
+#            hidden = hidden.view(self.hidden_factor, batch_size, self.hidden_size)
 
-        hidden = hidden.unsqueeze(0)
+#        hidden = hidden.unsqueeze(0)
+
+        hidden = hidden.view(batch_size, self.max_sequence_length,self.hidden_size*self.hidden_factor)
 
         # required for dynamic stopping of sentence generation
         sequence_idx = torch.arange(0, batch_size, out=self.tensor()).long()  # all idx of batch
@@ -150,9 +147,10 @@ class SentenceVAE(nn.Module):
 
             input_embedding = self.embedding(input_sequence)
 
-            output, hidden = self.decoder_rnn(input_embedding, hidden)
+            #output, hidden = self.decoder_rnn(input_embedding, hidden)
+            outputs, hidden = self.decoder_rnn(hidden)
 
-            logits = self.outputs2vocab(output)
+            logits = self.outputs2vocab(output) #This is 1 sentence
 
             input_sequence = self._sample(logits)
 
