@@ -9,4 +9,5 @@ ptb.py and model.py are edited to it the new architecture. The inference functio
 
 model.py has some minor modifications to make it work with my cuda.
 
-train.py has in it's evaluation a minor modification where it was previously able to remove some padding. it does not do that anymore but might be reimplementable later.
+train.py has in it's evaluation of the loss a minor modification where it was previously able to remove some padding. it does not do that anymore but might be reimplementable later.
+As I had problems with the saving files with the names suggested in the code with windows currently to run train.py you need to first make the folder you want it to safe in and then tell it what that folder is. 
