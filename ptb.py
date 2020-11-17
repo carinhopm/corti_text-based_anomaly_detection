@@ -18,7 +18,7 @@ class PTB(Dataset):
         super().__init__()
         self.data_dir = data_dir
         self.split = split
-        #self.max_sequence_length = kwargs.get('max_sequence_length', 180)
+        self.max_sequence_length = kwargs.get('max_sequence_length', 200)
         #self.min_occ = kwargs.get('min_occ', 3)
 
         self.raw_data_path = os.path.join(data_dir, 'ptb.'+split+'.txt')
@@ -118,18 +118,26 @@ class PTB(Dataset):
 
             for i, line in enumerate(file):             #lineindex, line in file
 
-                # Split line into word-tokens with BERT tokenizer, adding CLS and SEP to define start & end of sentence 
-                words = self.tokenizer.tokenize("[CLS] " + line + " [SEP]")
+                # Split line into word-tokens with BERT tokenizer
+                words = self.tokenizer.tokenize(line)
+                
+                input = ['[CLS]'] + words               #[CLS] in start
+                input = input[:self.max_sequence_length-1] #making so that inputs and targets are missing end and start respectively.
+                input = input + ['[SEP]']
 
                 input = words
                 target = input.clone()
+                assert len(input) == len(target), "%i, %i"%(len(input), len(target))
                 length = len(input)                     #defining length of sentence
+                
+                input.extend(['[PAD]'] * (self.max_sequence_length-length)) #adds padding to end up till max sequence length
+                target.extend(['[PAD]'] * (self.max_sequence_length-length))
 
                 input = [self.tokenizer.convert_tokens_to_ids(w) for w in input]   #For each word in input search for word index in BERT vocabulary
                 target = [self.tokenizer.convert_tokens_to_ids(w) for w in target] #Same for target.
 
                 id = len(data)                                                #index of the line, could use i
-                data[id]['input'] = torch.tensor([input])                                  #data[line-index]["input"] is input in the number format
+                data[id]['input'] = torch.tensor([input])                     #data[line-index]["input"] is input in the number format
                 data[id]['target'] = torch.tensor([target])
                 data[id]['length'] = length
 

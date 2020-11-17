@@ -16,13 +16,13 @@ class SentenceVAE(nn.Module):
         #self.tensor = torch.cuda.FloatTensor if False else torch.Tensor
 
         '''
-        self.max_sequence_length = max_sequence_length
         self.sos_idx = sos_idx
         self.eos_idx = eos_idx
         self.pad_idx = pad_idx
         self.unk_idx = unk_idx
         '''
 
+        self.max_sequence_length = max_sequence_length
         self.latent_size = latent_size
 
         self.rnn_type = rnn_type
@@ -63,7 +63,7 @@ class SentenceVAE(nn.Module):
         self.hidden2mean = nn.Linear(self.encoder_rnn_out_size_full, latent_size)
         self.hidden2logv = nn.Linear(self.encoder_rnn_out_size_full, latent_size)
         self.latent2hidden = nn.Linear(latent_size, self.encoder_rnn_out_size_full)
-        self.outputs2vocab = nn.Linear(embedding_size, vocab_size)
+        #self.outputs2vocab = nn.Linear(embedding_size, vocab_size)
 
     def forward(self, input_sequence, length):
 
@@ -72,7 +72,18 @@ class SentenceVAE(nn.Module):
         input_sequence = input_sequence[sorted_idx]
 
         # ENCODER
-        input_embedding = self.embedding(input_sequence.type(torch.long))   #Translates the words into vectors with correlations.
+        embedding_output = self.embedding_model(input_sequence)
+        hidden_states = embedding_output[2]
+        token_embeddings = torch.stack(hidden_states, dim=0)
+        token_embeddings = token_embeddings.permute(1,2,0,3)
+        input_embedding = [] #Stores the batches (lines)
+        for batch in token_embeddings:
+            token_vecs_sum = [] #Stores the token vectors
+            for token in token_embeddings: #For each token in the sentence...
+                sum_vec = torch.sum(token[-4:], dim=0) #Sum the vectors from the last four layers
+                token_vecs_sum.append(sum_vec) #Use `sum_vec` to represent `token`
+            input_embedding.append(token_vecs_sum) #Use `token_vecs_sum` to represent `line`
+        #input_embedding = self.embedding(input_sequence.type(torch.long))   #Translates the words into vectors with correlations.
 
         mean,logv = encoder(input_embedding,batch_size)
 
@@ -92,26 +103,6 @@ class SentenceVAE(nn.Module):
 
 
         return logp, mean, logv, z
-
-    def encoder(self,x,batch_size):
-        ##What I have worked with in RNN
-        encoder_rnn_out, _ = self.encoder_rnn(input_embedding)
-        hidden = encoder_rnn_out
-        hidden = torch.reshape(hidden,(batch_size, self.encoder_rnn_out_size_full))
-        ##What I have worked with in RNN
-        mean = self.hidden2mean(hidden)
-        logv = self.hidden2logv(hidden)
-
-        return mean, logv
-
-    def decoder(self,z,batch_size):
-        decoder_hidden = self.latent2hidden(z)
-        ##What I have worked with in RNN
-        decoder_hidden = decoder_hidden.view(batch_size, self.max_sequence_length,self.hidden_size*self.hidden_factor)
-        outputs, _ = self.decoder_rnn(decoder_hidden)
-        ##What I have worked with in RNN
-
-        return outputs
 
 #I AM CURRENTLY EDITING INFERENCE TO WORK WITH THE NEW ARCHITECTURE.
     def inference(self, n=4, z=None):
