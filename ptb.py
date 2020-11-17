@@ -6,9 +6,10 @@ import torch
 import numpy as np
 from collections import defaultdict
 from torch.utils.data import Dataset
-from nltk.tokenize import TweetTokenizer
+#from nltk.tokenize import TweetTokenizer
+from transformers import BertTokenizer # pip install transformers
 
-from utils import OrderedCounter
+#from utils import OrderedCounter
 
 class PTB(Dataset):
 
@@ -17,13 +18,20 @@ class PTB(Dataset):
         super().__init__()
         self.data_dir = data_dir
         self.split = split
-        self.max_sequence_length = kwargs.get('max_sequence_length', 50)
-        self.min_occ = kwargs.get('min_occ', 3)
+        #self.max_sequence_length = kwargs.get('max_sequence_length', 180)
+        #self.min_occ = kwargs.get('min_occ', 3)
 
         self.raw_data_path = os.path.join(data_dir, 'ptb.'+split+'.txt')
         self.data_file = 'ptb.'+split+'.json'
-        self.vocab_file = 'ptb.vocab.json'
+        #self.vocab_file = 'ptb.vocab.json'
+        
+        # Load pre-trained BERT model tokenizer (vocabulary)
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        
+        # Always create data (at least as 1st approach)
+        self._create_data()
 
+        '''
         if create_data:
             print("Creating new %s ptb data."%split.upper())
             self._create_data()
@@ -34,6 +42,7 @@ class PTB(Dataset):
 
         else:
             self._load_data()
+        '''
 
 
     def __len__(self):
@@ -47,10 +56,21 @@ class PTB(Dataset):
             'target': np.asarray(self.data[idx]['target']),
             'length': self.data[idx]['length']
         }
-
+    
+    '''
     @property
     def vocab_size(self):
         return len(self.w2i)
+    
+    # To start a sentence
+    @property
+    def cls_idx(self):
+        return self.w2i['[CLS]']
+
+    # To end a sentence
+    @property
+    def sep_idx(self):
+        return self.w2i['[SEP]']
 
     @property
     def pad_idx(self):
@@ -89,7 +109,35 @@ class PTB(Dataset):
             vocab = json.load(vocab_file)
 
         self.w2i, self.i2w = vocab['w2i'], vocab['i2w']
+    '''
+    
+    def _create_data(self):
 
+        data = defaultdict(dict)                        #A dictionary
+        with open(self.raw_data_path, 'r') as file:     #Opens datafile
+
+            for i, line in enumerate(file):             #lineindex, line in file
+
+                # Split line into word-tokens with BERT tokenizer, adding CLS and SEP to define start & end of sentence 
+                words = self.tokenizer.tokenize("[CLS] " + line + " [SEP]")
+
+                input = words
+                target = input.clone()
+                length = len(input)                     #defining length of sentence
+
+                input = [self.tokenizer.convert_tokens_to_ids(w) for w in input]   #For each word in input search for word index in BERT vocabulary
+                target = [self.tokenizer.convert_tokens_to_ids(w) for w in target] #Same for target.
+
+                id = len(data)                                                #index of the line, could use i
+                data[id]['input'] = torch.tensor([input])                                  #data[line-index]["input"] is input in the number format
+                data[id]['target'] = torch.tensor([target])
+                data[id]['length'] = length
+
+        with io.open(os.path.join(self.data_dir, self.data_file), 'wb') as data_file:
+            data = json.dumps(data, ensure_ascii=False)
+            data_file.write(data.encode('utf8', 'replace'))
+
+    '''
     def _create_data(self):
 
         if self.split == 'train':
@@ -168,3 +216,4 @@ class PTB(Dataset):
             vocab_file.write(data.encode('utf8', 'replace'))
 
         self._load_vocab()                                  #load it where you saved it.
+    '''

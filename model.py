@@ -1,24 +1,27 @@
 #This has been modified so that it no longer uses the input sequence in the output
 import torch
 import torch.nn as nn
-import torch.nn.utils.rnn as rnn_utils
+#import torch.nn.utils.rnn as rnn_utils
 from utils import to_var
+
+from transformers import BertModel
 
 
 class SentenceVAE(nn.Module):
-    def __init__(self, vocab_size, embedding_size, rnn_type, hidden_size, word_dropout, embedding_dropout, latent_size,
-                sos_idx, eos_idx, pad_idx, unk_idx, max_sequence_length, num_layers=1, bidirectional=False):
+    def __init__(self, embedding_size, rnn_type, hidden_size, word_dropout, embedding_dropout, latent_size,
+                max_sequence_length, num_layers=1, bidirectional=False):
 
         super().__init__()
         self.tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.Tensor
         #self.tensor = torch.cuda.FloatTensor if False else torch.Tensor
 
-
+        '''
         self.max_sequence_length = max_sequence_length
         self.sos_idx = sos_idx
         self.eos_idx = eos_idx
         self.pad_idx = pad_idx
         self.unk_idx = unk_idx
+        '''
 
         self.latent_size = latent_size
 
@@ -27,7 +30,9 @@ class SentenceVAE(nn.Module):
         self.num_layers = num_layers
         self.hidden_size = hidden_size
 
-        self.embedding = nn.Embedding(vocab_size, embedding_size) #given our vocabulary size and a choice of embedding_size we can make vectors for our vocabulary representing correlations and not assuming orthogonality.
+        self.embedding_model = BertModel.from_pretrained('bert-base-uncased', output_hidden_states = True, )
+        self.embedding_model.eval()
+        #self.embedding = nn.Embedding(vocab_size, embedding_size) #given our vocabulary size and a choice of embedding_size we can make vectors for our vocabulary representing correlations and not assuming orthogonality.
         self.word_dropout_rate = word_dropout
         self.embedding_dropout = nn.Dropout(p=embedding_dropout)
 
