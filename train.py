@@ -16,6 +16,7 @@ from model import SentenceVAE
 
 def main(args):
     ts = time.strftime('%Y-%b-%d-%H:%M:%S', time.gmtime())
+    t1 = time.time() #starting time
 
     splits = ['train', 'valid'] + (['test'] if args.test else [])
 
@@ -94,9 +95,8 @@ def main(args):
     def loss_fn(logp, target, length, mean, logv, anneal_function, step, k, x0):
 
         # cut-off unnecessary padding from target, and flatten
-        #target = target[:, :torch.max(length).item()].contiguous().view(-1)
-        target = target[:, :].contiguous().view(-1)
-        logp = logp.view(-1, logp.size(2))
+        target = target[:, :torch.max(length).item()].contiguous().view(-1)
+        logp = logp[:, :torch.max(length).item(),:].contiguous().view(-1, logp.size(2))
 
         # Negative Log Likelihood
         NLL_loss = NLL(logp, target.type(torch.long))
@@ -169,9 +169,9 @@ def main(args):
                                       epoch*len(data_loader) + iteration)
 
                 if iteration % args.print_every == 0 or iteration+1 == len(data_loader):
-                    print("%s Batch %04d/%i, Loss %9.4f, NLL-Loss %9.4f, KL-Loss %9.4f, KL-Weight %6.3f"
+                    print("%s Batch %04d/%i, Loss %9.4f, NLL-Loss %9.4f, KL-Loss %9.4f, KL-Weight %6.3f, time passed %6.1f"
                           % (split.upper(), iteration, len(data_loader)-1, loss.item(), NLL_loss.item()/batch_size,
-                          KL_loss.item()/batch_size, KL_weight))
+                          KL_loss.item()/batch_size, KL_weight, time.time()-t1))
 
                 if split == 'valid':
                     if 'target_sents' not in tracker:
@@ -225,7 +225,7 @@ if __name__ == '__main__':
 
     parser.add_argument('-af', '--anneal_function', type=str, default='logistic')
     parser.add_argument('-k', '--k', type=float, default=0.0025)
-    parser.add_argument('-x0', '--x0', type=int, default=2500)
+    parser.add_argument('-x0', '--x0', type=int, default=4000)
 
     parser.add_argument('-v', '--print_every', type=int, default=50)
     parser.add_argument('-tb', '--tensorboard_logging', action='store_true')

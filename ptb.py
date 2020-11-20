@@ -110,7 +110,7 @@ class PTB(Dataset):
                 input = input[:self.max_sequence_length-1] #making so that inputs and targets are missing end and start respectively.
                 input = input + ['<eos>']
 
-                target = input.clone()
+                target = input.copy()
 
                 assert len(input) == len(target), "%i, %i"%(len(input), len(target))
                 length = len(input)                     #defining length of sentence
