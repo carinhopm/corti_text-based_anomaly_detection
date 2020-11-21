@@ -46,11 +46,6 @@ def main(args):
 
 
     params = dict(
-        vocab_size=datasets['train'].vocab_size,
-        sos_idx=datasets['train'].sos_idx,
-        eos_idx=datasets['train'].eos_idx,
-        pad_idx=datasets['train'].pad_idx,
-        unk_idx=datasets['train'].unk_idx,
         max_sequence_length=args.max_sequence_length,
         embedding_size=args.embedding_size,
         rnn_type=args.rnn_type,
@@ -213,7 +208,7 @@ if __name__ == '__main__':
     parser.add_argument('-bs', '--batch_size', type=int, default=64)
     parser.add_argument('-lr', '--learning_rate', type=float, default=0.001)
 
-    parser.add_argument('-eb', '--embedding_size', type=int, default=300)
+    parser.add_argument('-eb', '--embedding_size', type=int, default=768)
     parser.add_argument('-rnn', '--rnn_type', type=str, default='gru')
     parser.add_argument('-hs', '--hidden_size', type=int, default=256)
     parser.add_argument('-nl', '--num_layers', type=int, default=1)

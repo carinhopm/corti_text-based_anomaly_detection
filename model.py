@@ -1,24 +1,28 @@
+#This has been modified so that it no longer uses the input sequence in the output
 import torch
 import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
 from utils import to_var
 
+from transformers import BertModel
+
 
 class SentenceVAE(nn.Module):
-    def __init__(self, vocab_size, embedding_size, rnn_type, hidden_size, word_dropout, embedding_dropout, latent_size,
-                sos_idx, eos_idx, pad_idx, unk_idx, max_sequence_length, num_layers=1, bidirectional=False):
+    def __init__(self, embedding_size, rnn_type, hidden_size, word_dropout, embedding_dropout, latent_size,
+                max_sequence_length, num_layers=1, bidirectional=False):
 
         super().__init__()
         self.tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.Tensor
         #self.tensor = torch.cuda.FloatTensor if False else torch.Tensor
 
-
-        self.max_sequence_length = max_sequence_length
+        '''
         self.sos_idx = sos_idx
         self.eos_idx = eos_idx
         self.pad_idx = pad_idx
         self.unk_idx = unk_idx
+        '''
 
+        self.max_sequence_length = max_sequence_length
         self.latent_size = latent_size
 
         self.rnn_type = rnn_type
@@ -26,7 +30,9 @@ class SentenceVAE(nn.Module):
         self.num_layers = num_layers
         self.hidden_size = hidden_size
 
-        self.embedding = nn.Embedding(vocab_size, embedding_size) #given our vocabulary size and a choice of embedding_size we can make vectors for our vocabulary representing correlations and not assuming orthogonality.
+        self.embedding_model = BertModel.from_pretrained('bert-base-uncased', output_hidden_states = True, )
+        self.embedding_model.eval()
+        #self.embedding = nn.Embedding(vocab_size, embedding_size) #given our vocabulary size and a choice of embedding_size we can make vectors for our vocabulary representing correlations and not assuming orthogonality.
         self.word_dropout_rate = word_dropout
         self.embedding_dropout = nn.Dropout(p=embedding_dropout)
 
@@ -47,6 +53,7 @@ class SentenceVAE(nn.Module):
         self.decoder_rnn = rnn(embedding_size, hidden_size, num_layers=self.num_layers, bidirectional=self.bidirectional,
                                batch_first=True)
         self.decoder_rnn_BN = nn.BatchNorm1d(hidden_size*self.hidden_factor) #Sucked
+
 
 
         self.hidden2mean = nn.Linear(hidden_size * self.hidden_factor, latent_size)
@@ -90,6 +97,7 @@ class SentenceVAE(nn.Module):
         hidden = self.latent2hidden_BN(hidden.permute(1,2,0)).permute(2,0,1).contiguous()
 
 
+
         decoder_input_sequence = to_var(torch.Tensor(self.batch_size,self.max_sequence_length).fill_(self.sos_idx).long())
 
         decoder_input_embedding = self.embedding(decoder_input_sequence.type(torch.long))
@@ -104,15 +112,37 @@ class SentenceVAE(nn.Module):
 
     def forward(self, input_sequence, length):
 
-        self.batch_size = input_sequence.size(0)
-        self.sorted_lengths, self.sorted_idx = torch.sort(length, descending=True)
-        input_sequence = input_sequence[self.sorted_idx]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        batch_size = input_sequence.size(0)
+        sorted_lengths, sorted_idx = torch.sort(length, descending=True)
+        input_sequence = input_sequence[sorted_idx]
 
         # ENCODER
-        input_embedding = self.embedding(input_sequence.type(torch.long))   #Translates the words into vectors with correlations.
-        #input_embedding = self.encoder_embedding_BN(input_embedding.permute(0,2,1)).permute(0,2,1)
-
-        mean, logv = self.encoder(input_embedding)
+        embedding_output = self.embedding_model(input_sequence)
+        hidden_states = embedding_output[2]
+        token_embeddings = torch.stack(hidden_states, dim=0)
+        token_embeddings = token_embeddings.permute(1,2,0,3)
+        input_embedding = [] #Stores the batches (lines)
+        for batch in token_embeddings:
+            token_vecs_sum = [] #Stores the token vectors
+            for token in token_embeddings: #For each token in the sentence...
+                sum_vec = torch.sum(token[-4:], dim=0) #Sum the vectors from the last four layers
+                token_vecs_sum.append(sum_vec) #Use `sum_vec` to represent `token`
+            input_embedding.append(token_vecs_sum) #Use `token_vecs_sum` to represent `line`
+	mean, logv = self.encoder(input_embedding)
 
         std = torch.exp(0.5 * logv)
 
