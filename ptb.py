@@ -2,7 +2,6 @@
 import os
 import io
 import json
-import torch
 import numpy as np
 from collections import defaultdict
 from torch.utils.data import Dataset
@@ -111,6 +110,12 @@ class PTB(Dataset):
         self.w2i, self.i2w = vocab['w2i'], vocab['i2w']
     '''
     
+    def word2idx(self, word):
+        return self.tokenizer.convert_tokens_to_ids(word)
+    
+    def idx2word(self, idx):
+        return self.tokenizer.convert_ids_to_tokens(idx, skip_special_tokens=True)
+    
     def _create_data(self):
 
         data = defaultdict(dict)                        #A dictionary
@@ -126,7 +131,7 @@ class PTB(Dataset):
                 input = input + ['[SEP]']
 
                 input = words
-                target = input.clone()
+                target = input[:]
                 assert len(input) == len(target), "%i, %i"%(len(input), len(target))
                 length = len(input)                     #defining length of sentence
                 
@@ -137,13 +142,15 @@ class PTB(Dataset):
                 target = [self.tokenizer.convert_tokens_to_ids(w) for w in target] #Same for target.
 
                 id = len(data)                                                #index of the line, could use i
-                data[id]['input'] = torch.tensor([input])                     #data[line-index]["input"] is input in the number format
-                data[id]['target'] = torch.tensor([target])
+                data[id]['input'] = input                                     #data[line-index]["input"] is input in the number format
+                data[id]['target'] = target
                 data[id]['length'] = length
 
         with io.open(os.path.join(self.data_dir, self.data_file), 'wb') as data_file:
             data = json.dumps(data, ensure_ascii=False)
             data_file.write(data.encode('utf8', 'replace'))
+        
+        self.data = data
 
     '''
     def _create_data(self):
