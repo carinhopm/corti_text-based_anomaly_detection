@@ -26,11 +26,7 @@ class PTB(Dataset):
         
         # Load pre-trained BERT model tokenizer (vocabulary)
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-        
-        # Always create data (at least as 1st approach)
-        self._create_data()
 
-        '''
         if create_data:
             print("Creating new %s ptb data."%split.upper())
             self._create_data()
@@ -41,7 +37,6 @@ class PTB(Dataset):
 
         else:
             self._load_data()
-        '''
 
 
     def __len__(self):
@@ -56,65 +51,41 @@ class PTB(Dataset):
             'length': self.data[idx]['length']
         }
     
-    '''
+    # For BERT pre-trained model hyperparameters check: https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-config.json
     @property
     def vocab_size(self):
-        return len(self.w2i)
-    
-    # To start a sentence
-    @property
-    def cls_idx(self):
-        return self.w2i['[CLS]']
-
-    # To end a sentence
-    @property
-    def sep_idx(self):
-        return self.w2i['[SEP]']
+        return 30522
 
     @property
     def pad_idx(self):
-        return self.w2i['<pad>']
+        return self.tokenizer.convert_tokens_to_ids('[PAD]')
 
     @property
     def sos_idx(self):
-        return self.w2i['<sos>']
+        return self.tokenizer.convert_tokens_to_ids('[CLS]')
 
     @property
     def eos_idx(self):
-        return self.w2i['<eos>']
+        return self.tokenizer.convert_tokens_to_ids('[SEP]')
 
     @property
     def unk_idx(self):
-        return self.w2i['<unk>']
+        return self.tokenizer.convert_tokens_to_ids('[UNK]')
+    
+    def idx2word(self, idx, pad_idx):
+        sent_str = [str()]*len(idx)
+        for i, sent in enumerate(idx):
+            for word_id in sent:
+                if word_id == pad_idx:
+                    break
+                sent_str[i] += self.tokenizer.convert_ids_to_tokens(word_id) + " "
+            sent_str[i] = sent_str[i].strip()
+        return sent_str
 
-    def get_w2i(self):
-        return self.w2i
 
-    def get_i2w(self):
-        return self.i2w
-
-
-    def _load_data(self, vocab=True):
-
+    def _load_data(self):
         with open(os.path.join(self.data_dir, self.data_file), 'r') as file:
             self.data = json.load(file)
-        if vocab:
-            with open(os.path.join(self.data_dir, self.vocab_file), 'r') as file:
-                vocab = json.load(file)
-            self.w2i, self.i2w = vocab['w2i'], vocab['i2w']
-
-    def _load_vocab(self):
-        with open(os.path.join(self.data_dir, self.vocab_file), 'r') as vocab_file:
-            vocab = json.load(vocab_file)
-
-        self.w2i, self.i2w = vocab['w2i'], vocab['i2w']
-    '''
-    
-    def word2idx(self, word):
-        return self.tokenizer.convert_tokens_to_ids(word)
-    
-    def idx2word(self, idx):
-        return self.tokenizer.convert_ids_to_tokens(idx, skip_special_tokens=True)
     
     def _create_data(self):
 
@@ -124,14 +95,13 @@ class PTB(Dataset):
             for i, line in enumerate(file):             #lineindex, line in file
 
                 # Split line into word-tokens with BERT tokenizer
-                words = self.tokenizer.tokenize(line)
+                words = self.tokenizer.tokenize(line).tolist()
                 
                 input = ['[CLS]'] + words               #[CLS] in start
                 input = input[:self.max_sequence_length-1] #making so that inputs and targets are missing end and start respectively.
                 input = input + ['[SEP]']
 
-                input = words
-                target = input[:]
+                target = input.copy()
                 assert len(input) == len(target), "%i, %i"%(len(input), len(target))
                 length = len(input)                     #defining length of sentence
                 
@@ -150,7 +120,7 @@ class PTB(Dataset):
             data = json.dumps(data, ensure_ascii=False)
             data_file.write(data.encode('utf8', 'replace'))
         
-        self.data = data
+        self._load_data()
 
     '''
     def _create_data(self):
@@ -194,41 +164,4 @@ class PTB(Dataset):
             data_file.write(data.encode('utf8', 'replace'))
 
         self._load_data(vocab=False)
-
-    def _create_vocab(self):
-
-        assert self.split == 'train', "Vocablurary can only be created for training file."
-
-        tokenizer = TweetTokenizer(preserve_case=False)         #sentence splitter for tweets
-
-        w2c = OrderedCounter()                                  #All three are dictionary like stuff
-        w2i = dict()
-        i2w = dict()
-
-        special_tokens = ['<pad>', '<unk>', '<sos>', '<eos>'] #padding, unknown, start, end
-        for st in special_tokens:
-            i2w[len(w2i)] = st                                #word of index 0,1,2,3 is special_tokens
-            w2i[st] = len(w2i)                                #index of special token is 0,1,2,3
-
-        with open(self.raw_data_path, 'r') as file:           #opening data file
-
-            for i, line in enumerate(file):                  #index of line, line
-                words = tokenizer.tokenize(line)             #line split
-                w2c.update(words)                            #makes a dictionary of words with counts order by which words it first encountered.
-
-            for w, c in w2c.items():                        #word, count
-                if c > self.min_occ and w not in special_tokens: #IF not too few counts
-                    i2w[len(w2i)] = w                       #word of index
-                    w2i[w] = len(w2i)                       #index of word
-
-        assert len(w2i) == len(i2w)
-
-        print("Vocablurary of %i keys created." %len(w2i))
-
-        vocab = dict(w2i=w2i, i2w=i2w)                    #vocabulary consists of word to index and index to word.
-        with io.open(os.path.join(self.data_dir, self.vocab_file), 'wb') as vocab_file: #Safe vocabulary
-            data = json.dumps(vocab, ensure_ascii=False)
-            vocab_file.write(data.encode('utf8', 'replace'))
-
-        self._load_vocab()                                  #load it where you saved it.
     '''

@@ -46,7 +46,11 @@ def main(args):
 
 
     params = dict(
-        vocab_size=args.vocab_size,
+        vocab_size=datasets['train'].vocab_size,
+        sos_idx=datasets['train'].sos_idx,
+        eos_idx=datasets['train'].eos_idx,
+        pad_idx=datasets['train'].pad_idx,
+        unk_idx=datasets['train'].unk_idx,
         max_sequence_length=args.max_sequence_length,
         embedding_size=args.embedding_size,
         rnn_type=args.rnn_type,
@@ -87,7 +91,7 @@ def main(args):
         elif anneal_function == 'linear':
             return min(1, step/x0)
 
-    NLL = torch.nn.NLLLoss(ignore_index=0, reduction='sum') # Padding index now is 0
+    NLL = torch.nn.NLLLoss(ignore_index=datasets['train'].pad_idx, reduction='sum')
     def loss_fn(logp, target, length, mean, logv, anneal_function, step, k, x0):
 
         # cut-off unnecessary padding from target, and flatten
@@ -172,7 +176,7 @@ def main(args):
                 if split == 'valid':
                     if 'target_sents' not in tracker:
                         tracker['target_sents'] = list()
-                    tracker['target_sents'] += datasets[split].idx2word(batch['target'].data)
+                    tracker['target_sents'] += datasets['train'].idx2word(batch['target'].data, pad_idx=datasets['train'].pad_idx)
                     tracker['z'] = torch.cat((tracker['z'], z.data), dim=0)
 
             print("%s Epoch %02d/%i, Mean ELBO %9.4f" % (split.upper(), epoch, args.epochs, tracker['ELBO'].mean()))

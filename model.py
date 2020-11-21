@@ -9,13 +9,18 @@ from transformers import BertModel
 
 class SentenceVAE(nn.Module):
     def __init__(self, vocab_size, embedding_size, rnn_type, hidden_size, word_dropout, embedding_dropout, latent_size,
-                max_sequence_length, num_layers=1, bidirectional=False):
+                sos_idx, eos_idx, pad_idx, unk_idx, max_sequence_length, num_layers=1, bidirectional=False):
 
         super().__init__()
         self.tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.Tensor
         #self.tensor = torch.cuda.FloatTensor if False else torch.Tensor
 
         self.max_sequence_length = max_sequence_length
+        self.sos_idx = sos_idx
+        self.eos_idx = eos_idx
+        self.pad_idx = pad_idx
+        self.unk_idx = unk_idx
+
         self.latent_size = latent_size
 
         self.rnn_type = rnn_type
@@ -102,20 +107,19 @@ class SentenceVAE(nn.Module):
         return outputs
 
     def forward(self, input_sequence, length):
-        #batch_size = input_sequence.size(0)
-        input_sequence = torch.tensor([input_sequence])
+        batch_size = input_sequence.size(0)
         sorted_lengths, sorted_idx = torch.sort(length, descending=True)
         input_sequence = input_sequence[sorted_idx]
 
         # ENCODER
-        embedding_output = self.embedding_model(input_sequence)
+        embedding_output = self.embedding_model(input_sequence.to(torch.int64))
         hidden_states = embedding_output[2]
         token_embeddings = torch.stack(hidden_states, dim=0)
         token_embeddings = token_embeddings.permute(1,2,0,3)
-        input_embedding = [] #Stores the batches (lines)
-        for batch in token_embeddings:
+        input_embedding = [] #Stores the lines
+        for line in token_embeddings:
             token_vecs_sum = [] #Stores the token vectors
-            for token in token_embeddings: #For each token in the sentence...
+            for token in line: #For each token in the sentence...
                 sum_vec = torch.sum(token[-4:], dim=0) #Sum the vectors from the last four layers
                 token_vecs_sum.append(sum_vec) #Use `sum_vec` to represent `token`
             input_embedding.append(token_vecs_sum) #Use `token_vecs_sum` to represent `line`
