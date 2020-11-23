@@ -86,7 +86,7 @@ class SentenceVAE(nn.Module):
         else:
             _, hidden = self.encoder_rnn(packed_input)
         #hidden = self.drop(hidden)
-        #hidden = self.relu(hidden)
+        hidden = self.relu(hidden)
 
         if self.bidirectional or self.num_layers > 1:
             # flatten hidden state
@@ -117,6 +117,7 @@ class SentenceVAE(nn.Module):
 
         #hidden = self.drop(hidden)
         hidden = self.decoder_hidden_BN(hidden.permute(1,2,0)).permute(2,0,1).contiguous()
+        hidden = self.relu(hidden)
 
         decoder_input_sequence = to_var(torch.Tensor(self.batch_size,self.max_sequence_length).fill_(self.sos_idx).long())
 
