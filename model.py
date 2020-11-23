@@ -16,6 +16,7 @@ class SentenceVAE(nn.Module):
         #self.tensor = torch.cuda.FloatTensor if False else torch.Tensor
 
         self.max_sequence_length = max_sequence_length
+        self.vocab_size = vocab_size
         self.sos_idx = sos_idx
         self.eos_idx = eos_idx
         self.pad_idx = pad_idx
@@ -29,9 +30,10 @@ class SentenceVAE(nn.Module):
         self.hidden_size = hidden_size
 
         # For BERT pre-trained model hyperparameters check: https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-config.json
-        self.embedding_model = BertModel.from_pretrained('bert-base-uncased', output_hidden_states = True, )
+        self.embedding_model = BertModel.from_pretrained('bert-base-uncased')
         self.embedding_model.eval()
-        #self.embedding = nn.Embedding(vocab_size, embedding_size) #given our vocabulary size and a choice of embedding_size we can make vectors for our vocabulary representing correlations and not assuming orthogonality.
+        #self.embedding = nn.Embedding(vocab_size, embedding_size) #given our vocabulary size and a choice of embedding_size
+                                                                   #we can make vectors for our vocabulary representing correlations and not assuming orthogonality
         self.word_dropout_rate = word_dropout
         self.embedding_dropout = nn.Dropout(p=embedding_dropout)
 
@@ -63,7 +65,7 @@ class SentenceVAE(nn.Module):
         self.relu = nn.ReLU()
         self.drop = nn.Dropout(0.2)
 
-    def encoder(self,input_embedding,sorted_lengths):
+    def encoder(self,input_embedding,batch_size,sorted_lengths):
         packed_input = rnn_utils.pack_padded_sequence(input_embedding, sorted_lengths.data.tolist(), batch_first=True)
 
         _, hidden = self.encoder_rnn(packed_input)
@@ -71,9 +73,9 @@ class SentenceVAE(nn.Module):
 
         if self.bidirectional or self.num_layers > 1:
             # flatten hidden state
-            hidden = hidden.view(self.batch_size, self.hidden_size*self.hidden_factor)
+            hidden = hidden.view(batch_size, self.hidden_size*self.hidden_factor)
         else:
-            hidden = hidden.view(self.batch_size, self.hidden_size)
+            hidden = hidden.view(batch_size, self.hidden_size)
         hidden = self.encoder_rnn_BN(hidden)
 
         mean = self.hidden2mean(hidden)
@@ -81,23 +83,23 @@ class SentenceVAE(nn.Module):
 
         return mean, logv
 
-    def decoder(self,z,sorted_lengths):
+    def decoder(self,z,batch_size,sorted_lengths):
         hidden = self.latent2hidden(z)
         #hidden = self.relu(hidden)
 
         if self.bidirectional or self.num_layers > 1:
             # unflatten hidden state
-            hidden = hidden.view(self.hidden_factor, self.batch_size, self.hidden_size)
+            hidden = hidden.view(self.hidden_factor, batch_size, self.hidden_size)
         else:
             hidden = hidden.unsqueeze(0)
 
         #hidden = self.drop(hidden)
         hidden = self.latent2hidden_BN(hidden.permute(1,2,0)).permute(2,0,1).contiguous()
 
-        decoder_input_sequence = to_var(torch.Tensor(self.batch_size,self.max_sequence_length).fill_(self.sos_idx).long())
+        decoder_input_sequence = to_var(torch.Tensor(batch_size,self.max_sequence_length).fill_(self.sos_idx).long())
 
-        decoder_input_embedding = self.embedding(decoder_input_sequence.type(torch.long))
-        decoder_input_embedding = self.embedding_dropout(decoder_input_embedding)
+        decoder_input_embedding = self.embedding_model(decoder_input_sequence.to(torch.int64))
+        decoder_input_embedding = self.embedding_dropout(decoder_input_embedding[0])
 
         packed_input = rnn_utils.pack_padded_sequence(decoder_input_embedding, sorted_lengths.data.tolist(), batch_first=True)
 
@@ -106,47 +108,36 @@ class SentenceVAE(nn.Module):
 
         return outputs
 
-    def forward(self, input_sequence, length):
+    def forward(self, input_sequence, length):        
         batch_size = input_sequence.size(0)
         sorted_lengths, sorted_idx = torch.sort(length, descending=True)
         input_sequence = input_sequence[sorted_idx]
 
         # ENCODER
         embedding_output = self.embedding_model(input_sequence.to(torch.int64))
-        hidden_states = embedding_output[2]
-        token_embeddings = torch.stack(hidden_states, dim=0)
-        token_embeddings = token_embeddings.permute(1,2,0,3)
-        input_embedding = [] #Stores the lines
-        for line in token_embeddings:
-            token_vecs_sum = [] #Stores the token vectors
-            for token in line: #For each token in the sentence...
-                sum_vec = torch.sum(token[-4:], dim=0) #Sum the vectors from the last four layers
-                token_vecs_sum.append(sum_vec) #Use `sum_vec` to represent `token`
-            token_vecs_sum = torch.cat(token_vecs_sum, dim=0)
-            input_embedding.append(token_vecs_sum) #Use `token_vecs_sum` to represent `line`
-        input_embedding = torch.cat(input_embedding, dim=0)
-        mean, logv = self.encoder(input_embedding, sorted_lengths)
+        input_embedding = embedding_output[0]
+        mean, logv = self.encoder(input_embedding, batch_size, sorted_lengths)
 
         std = torch.exp(0.5 * logv)
 
-        eps = to_var(torch.randn([self.batch_size, self.latent_size]))
+        eps = to_var(torch.randn([batch_size, self.latent_size]))
         z = eps * std + mean #This is creating a number from the distribution, nice
 
         # DECODER
-        outputs = self.decoder(z, sorted_lengths)
+        outputs = self.decoder(z, batch_size, sorted_lengths)
 
         # process outputs
         padded_outputs = rnn_utils.pad_packed_sequence(outputs, batch_first=True)[0]
         padded_outputs = padded_outputs.contiguous()
         padded_outputs = self.drop(padded_outputs)
-        _,reversed_idx = torch.sort(self.sorted_idx)
+        _,reversed_idx = torch.sort(sorted_idx)
         padded_outputs = padded_outputs[reversed_idx]
         b,s,_ = padded_outputs.size()
 
         # project outputs to vocab
         logp = nn.functional.log_softmax(self.outputs2vocab(padded_outputs.reshape(-1, padded_outputs.size(2))), dim=-1)
         #logp = nn.functional.log_softmax(self.outputs2vocab(padded_outputs.view(b, s, self.hidden_size * self.hidden_factor)), dim=-1)
-        logp = logp.view(b, s, self.embedding.num_embeddings) #batch_size,max_sequence_length,vocab_size
+        logp = logp.view(b, s, self.vocab_size) #batch_size,max_sequence_length,vocab_size
 
         return logp, mean, logv, z
 
@@ -233,3 +224,4 @@ class SentenceVAE(nn.Module):
         save_to[running_seqs] = running_latest
 
         return save_to
+    

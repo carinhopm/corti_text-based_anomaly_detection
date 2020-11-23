@@ -5,10 +5,8 @@ import json
 import numpy as np
 from collections import defaultdict
 from torch.utils.data import Dataset
-#from nltk.tokenize import TweetTokenizer
 from transformers import BertTokenizer # pip install transformers
 
-#from utils import OrderedCounter
 
 class PTB(Dataset):
 
@@ -95,7 +93,7 @@ class PTB(Dataset):
             for i, line in enumerate(file):             #lineindex, line in file
 
                 # Split line into word-tokens with BERT tokenizer
-                words = self.tokenizer.tokenize(line).tolist()
+                words = self.tokenizer.tokenize(line)
                 
                 input = ['[CLS]'] + words               #[CLS] in start
                 input = input[:self.max_sequence_length-1] #making so that inputs and targets are missing end and start respectively.
@@ -121,47 +119,3 @@ class PTB(Dataset):
             data_file.write(data.encode('utf8', 'replace'))
         
         self._load_data()
-
-    '''
-    def _create_data(self):
-
-        if self.split == 'train':
-            self._create_vocab()                        #need vocabulary before we can work
-        else:
-            self._load_vocab()
-
-        tokenizer = TweetTokenizer(preserve_case=False) #A splitter of sentences made for tweets
-
-        data = defaultdict(dict)                        #A dictionary
-        with open(self.raw_data_path, 'r') as file:     #Opens datafile
-
-            for i, line in enumerate(file):             #lineindex, line in file
-
-                words = tokenizer.tokenize(line)        #split line according to tweettokenizer into words.
-
-                input = ['<sos>'] + words               #<sos> in start
-                input = input[:self.max_sequence_length-1] #making so that inputs and targets are missing end and start respectively.
-                input = input + ['<eos>']
-
-                target = input.copy()
-
-                assert len(input) == len(target), "%i, %i"%(len(input), len(target))
-                length = len(input)                     #defining length of sentence
-
-                input.extend(['<pad>'] * (self.max_sequence_length-length)) #adds padding to end up till max sequence length
-                target.extend(['<pad>'] * (self.max_sequence_length-length))
-
-                input = [self.w2i.get(w, self.w2i['<unk>']) for w in input]   #For each word in input search for word index in vocabulary or return 1 (for unknown) instead
-                target = [self.w2i.get(w, self.w2i['<unk>']) for w in target] #Same for target.
-
-                id = len(data)                                                #index of the line, could use i
-                data[id]['input'] = input                                     #data[line-index]["input"] er inputtet i talformatet.
-                data[id]['target'] = target
-                data[id]['length'] = length
-
-        with io.open(os.path.join(self.data_dir, self.data_file), 'wb') as data_file:
-            data = json.dumps(data, ensure_ascii=False)
-            data_file.write(data.encode('utf8', 'replace'))
-
-        self._load_data(vocab=False)
-    '''
