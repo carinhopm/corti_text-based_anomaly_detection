@@ -97,8 +97,6 @@ class SentenceVAE(nn.Module):
 
         hidden2 = self.encoder_hid2(hidden)
         #hidden2 = self.encoder_hid2_BN(hidden2)
-        #hidden2 = self.relu(hidden2)
-        #hidden2 = self.drop(hidden2)
 
         mean = self.hidden2mean(hidden2)
         logv = self.hidden2logv(hidden2)
@@ -107,10 +105,7 @@ class SentenceVAE(nn.Module):
 
     def decoder(self,z):
         hidden2 = self.latent2hidden2(z)
-        #hidden = self.relu(hidden)
         #hidden2 = self.decoder_hid2_BN(hidden2)
-        #hidden2 = self.relu(hidden2)
-        #hidden2 = self.drop(hidden2)
 
         hidden = self.decoder_hid2(hidden2)
 
@@ -131,7 +126,10 @@ class SentenceVAE(nn.Module):
         packed_input = rnn_utils.pack_padded_sequence(decoder_input_embedding, self.sorted_lengths.data.tolist(), batch_first=True)
 
         # decoder forward pass
-        outputs, _ = self.decoder_rnn(packed_input, hidden)
+        if self.rnn_type == "lstm":
+            outputs, _ = self.decoder_rnn(packed_input, (hidden,torch.zeros_like(hidden)))
+        else:
+            outputs, _ = self.decoder_rnn(packed_input, hidden)
 
         return outputs
 
