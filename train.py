@@ -16,7 +16,6 @@ from model import SentenceVAE
 
 def main(args):
     ts = time.strftime('%Y-%b-%d-%H:%M:%S', time.gmtime())
-    t1 = time.time() #starting time
 
     splits = ['train', 'valid'] + (['test'] if args.test else [])
 
@@ -55,6 +54,7 @@ def main(args):
         embedding_size=args.embedding_size,
         rnn_type=args.rnn_type,
         hidden_size=args.hidden_size,
+        hidden_size2=args.hidden_size2,
         word_dropout=args.word_dropout,
         embedding_dropout=args.embedding_dropout,
         latent_size=args.latent_size,
@@ -90,13 +90,17 @@ def main(args):
             return float(1/(1+np.exp(-k*(step-x0))))
         elif anneal_function == 'linear':
             return min(1, step/x0)
+        elif anneal_function == '1':
+            return 1
 
     NLL = torch.nn.NLLLoss(ignore_index=datasets['train'].pad_idx, reduction='sum')
     def loss_fn(logp, target, length, mean, logv, anneal_function, step, k, x0):
 
         # cut-off unnecessary padding from target, and flatten
         target = target[:, :torch.max(length).item()].contiguous().view(-1)
-        logp = logp[:, :torch.max(length).item(),:].contiguous().view(-1, logp.size(2))
+        #target = target[:, :].contiguous().view(-1)
+        logp = logp[:, :torch.max(length).item(),:]
+        logp = logp.view(-1, logp.size(2))
 
         # Negative Log Likelihood
         NLL_loss = NLL(logp, target.type(torch.long))
@@ -169,9 +173,9 @@ def main(args):
                                       epoch*len(data_loader) + iteration)
 
                 if iteration % args.print_every == 0 or iteration+1 == len(data_loader):
-                    print("%s Batch %04d/%i, Loss %9.4f, NLL-Loss %9.4f, KL-Loss %9.4f, KL-Weight %6.3f, time passed %6.1f"
+                    print("%s Batch %04d/%i, Loss %9.4f, NLL-Loss %9.4f, KL-Loss %9.4f, KL-Weight %6.3f"
                           % (split.upper(), iteration, len(data_loader)-1, loss.item(), NLL_loss.item()/batch_size,
-                          KL_loss.item()/batch_size, KL_weight, time.time()-t1))
+                          KL_loss.item()/batch_size, KL_weight))
 
                 if split == 'valid':
                     if 'target_sents' not in tracker:
@@ -216,9 +220,11 @@ if __name__ == '__main__':
     parser.add_argument('-vs', '--vocab_size', type=int, default=30522)
     parser.add_argument('-eb', '--embedding_size', type=int, default=768)
     parser.add_argument('-rnn', '--rnn_type', type=str, default='gru')
-    parser.add_argument('-hs', '--hidden_size', type=int, default=256)
+    parser.add_argument('-hs', '--hidden_size', type=int, default=512)
+    parser.add_argument('-hs2', '--hidden_size2', type=int, default=256)
     parser.add_argument('-nl', '--num_layers', type=int, default=1)
     #parser.add_argument('-bi', '--bidirectional', action='store_true')
+    #parser.add_argument('-bi', '--bidirectional', type=bool, default=False)
     parser.add_argument('-bi', '--bidirectional', type=bool, default=True)
     parser.add_argument('-ls', '--latent_size', type=int, default=16)
     parser.add_argument('-wd', '--word_dropout', type=float, default=0)
@@ -226,7 +232,7 @@ if __name__ == '__main__':
 
     parser.add_argument('-af', '--anneal_function', type=str, default='logistic')
     parser.add_argument('-k', '--k', type=float, default=0.0025)
-    parser.add_argument('-x0', '--x0', type=int, default=4000)
+    parser.add_argument('-x0', '--x0', type=int, default=2500)
 
     parser.add_argument('-v', '--print_every', type=int, default=50)
     parser.add_argument('-tb', '--tensorboard_logging', action='store_true')
@@ -239,7 +245,7 @@ if __name__ == '__main__':
     args.anneal_function = args.anneal_function.lower()
 
     assert args.rnn_type in ['rnn', 'lstm', 'gru']
-    assert args.anneal_function in ['logistic', 'linear']
+    assert args.anneal_function in ['logistic', 'linear','1']
     assert 0 <= args.word_dropout <= 1
 
     main(args)

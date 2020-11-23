@@ -8,7 +8,7 @@ from transformers import BertModel
 
 
 class SentenceVAE(nn.Module):
-    def __init__(self, vocab_size, embedding_size, rnn_type, hidden_size, word_dropout, embedding_dropout, latent_size,
+    def __init__(self, vocab_size, embedding_size, rnn_type, hidden_size, hidden_size2, word_dropout, embedding_dropout, latent_size,
                 sos_idx, eos_idx, pad_idx, unk_idx, max_sequence_length, num_layers=1, bidirectional=False):
 
         super().__init__()
@@ -28,6 +28,7 @@ class SentenceVAE(nn.Module):
         self.bidirectional = bidirectional
         self.num_layers = num_layers
         self.hidden_size = hidden_size
+        self.rnn_type = rnn_type
 
         # For BERT pre-trained model hyperparameters check: https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-config.json
         self.embedding_model = BertModel.from_pretrained('bert-base-uncased')
@@ -41,25 +42,36 @@ class SentenceVAE(nn.Module):
             rnn = nn.RNN
         elif rnn_type == 'gru':
             rnn = nn.GRU
-        # elif rnn_type == 'lstm':
-        #     rnn = nn.LSTM
+        elif rnn_type == 'lstm':
+            rnn = nn.LSTM
         else:
             raise ValueError()
-        
+
         self.hidden_factor = (2 if bidirectional else 1) * self.num_layers
 
         self.encoder_embedding_BN = nn.BatchNorm1d(embedding_size)
         self.encoder_rnn = rnn(embedding_size, hidden_size, num_layers=self.num_layers, bidirectional=self.bidirectional,
                                batch_first=True)
-        self.encoder_rnn_BN = nn.BatchNorm1d(hidden_size*self.hidden_factor)
+        self.encoder_hidden_BN = nn.BatchNorm1d(hidden_size*self.hidden_factor)
         self.decoder_rnn = rnn(embedding_size, hidden_size, num_layers=self.num_layers, bidirectional=self.bidirectional,
                                batch_first=True)
-        self.decoder_rnn_BN = nn.BatchNorm1d(hidden_size*self.hidden_factor) #Sucked
 
-        self.hidden2mean = nn.Linear(hidden_size * self.hidden_factor, latent_size)
-        self.hidden2logv = nn.Linear(hidden_size * self.hidden_factor, latent_size)
-        self.latent2hidden = nn.Linear(latent_size, hidden_size * self.hidden_factor)
-        self.latent2hidden_BN = nn.BatchNorm1d(hidden_size)
+        self.encoder_hid2 = nn.Linear(hidden_size * self.hidden_factor, hidden_size2)
+        self.encoder_hid2_BN = nn.BatchNorm1d(hidden_size2)
+        self.decoder_hid2 = nn.Linear(hidden_size2, hidden_size * self.hidden_factor)
+        self.decoder_hidden_BN = nn.BatchNorm1d(hidden_size)
+
+
+
+
+
+
+        self.hidden2mean = nn.Linear(hidden_size2, latent_size)
+        self.hidden2logv = nn.Linear(hidden_size2, latent_size)
+
+        self.latent2hidden2 = nn.Linear(latent_size, hidden_size2)
+        self.decoder_hid2_BN = nn.BatchNorm1d(hidden_size2)
+
         self.outputs2vocab = nn.Linear(hidden_size * self.hidden_factor, vocab_size)
 
         self.relu = nn.ReLU()
@@ -68,24 +80,32 @@ class SentenceVAE(nn.Module):
     def encoder(self,input_embedding,batch_size,sorted_lengths):
         packed_input = rnn_utils.pack_padded_sequence(input_embedding, sorted_lengths.data.tolist(), batch_first=True)
 
-        _, hidden = self.encoder_rnn(packed_input)
+        if self.rnn_type == "lstm":
+            _, (hidden, _) = self.encoder_rnn(packed_input)
+        else:
+            _, hidden = self.encoder_rnn(packed_input)
         #hidden = self.drop(hidden)
+        hidden = self.relu(hidden)
 
         if self.bidirectional or self.num_layers > 1:
             # flatten hidden state
             hidden = hidden.view(batch_size, self.hidden_size*self.hidden_factor)
         else:
-            hidden = hidden.view(batch_size, self.hidden_size)
-        hidden = self.encoder_rnn_BN(hidden)
+            hidden = hidden.view(self.batch_size, self.hidden_size)
+        hidden = self.encoder_hidden_BN(hidden)
 
-        mean = self.hidden2mean(hidden)
-        logv = self.hidden2logv(hidden)
+        hidden2 = self.encoder_hid2(hidden)
+        #hidden2 = self.encoder_hid2_BN(hidden2)
+
+        mean = self.hidden2mean(hidden2)
+        logv = self.hidden2logv(hidden2)
 
         return mean, logv
 
     def decoder(self,z,batch_size,sorted_lengths):
-        hidden = self.latent2hidden(z)
+        hidden2 = self.latent2hidden(z)
         #hidden = self.relu(hidden)
+        hidden = self.decoder_hid2(hidden2)
 
         if self.bidirectional or self.num_layers > 1:
             # unflatten hidden state
@@ -94,21 +114,25 @@ class SentenceVAE(nn.Module):
             hidden = hidden.unsqueeze(0)
 
         #hidden = self.drop(hidden)
-        hidden = self.latent2hidden_BN(hidden.permute(1,2,0)).permute(2,0,1).contiguous()
+        hidden = self.decoder_hidden_BN(hidden.permute(1,2,0)).permute(2,0,1).contiguous()
+        hidden = self.relu(hidden)
 
         decoder_input_sequence = to_var(torch.Tensor(batch_size,self.max_sequence_length).fill_(self.sos_idx).long())
 
-        decoder_input_embedding = self.embedding_model(decoder_input_sequence.to(torch.int64))
+        decoder_input_embedding = self.embedding_model(decoder_input_sequence.to(torch.int64)) #int64! Cudas mortal enemy! Only uses long!
         decoder_input_embedding = self.embedding_dropout(decoder_input_embedding[0])
 
         packed_input = rnn_utils.pack_padded_sequence(decoder_input_embedding, sorted_lengths.data.tolist(), batch_first=True)
 
         # decoder forward pass
-        outputs, _ = self.decoder_rnn(packed_input, hidden)
+        if self.rnn_type == "lstm":
+            outputs, _ = self.decoder_rnn(packed_input, (hidden,torch.zeros_like(hidden)))
+        else:
+            outputs, _ = self.decoder_rnn(packed_input, hidden)
 
         return outputs
 
-    def forward(self, input_sequence, length):        
+    def forward(self, input_sequence, length):
         batch_size = input_sequence.size(0)
         sorted_lengths, sorted_idx = torch.sort(length, descending=True)
         input_sequence = input_sequence[sorted_idx]
@@ -224,4 +248,3 @@ class SentenceVAE(nn.Module):
         save_to[running_seqs] = running_latest
 
         return save_to
-    

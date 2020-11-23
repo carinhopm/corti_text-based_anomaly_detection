@@ -1,4 +1,3 @@
-#This is modified so that input and target are now the same
 import os
 import io
 import json
@@ -21,7 +20,7 @@ class PTB(Dataset):
         self.raw_data_path = os.path.join(data_dir, 'ptb.'+split+'.txt')
         self.data_file = 'ptb.'+split+'.json'
         #self.vocab_file = 'ptb.vocab.json'
-        
+
         # Load pre-trained BERT model tokenizer (vocabulary)
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
@@ -48,7 +47,7 @@ class PTB(Dataset):
             'target': np.asarray(self.data[idx]['target']),
             'length': self.data[idx]['length']
         }
-    
+
     # For BERT pre-trained model hyperparameters check: https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-config.json
     @property
     def vocab_size(self):
@@ -69,7 +68,7 @@ class PTB(Dataset):
     @property
     def unk_idx(self):
         return self.tokenizer.convert_tokens_to_ids('[UNK]')
-    
+
     def idx2word(self, idx, pad_idx):
         sent_str = [str()]*len(idx)
         for i, sent in enumerate(idx):
@@ -84,7 +83,7 @@ class PTB(Dataset):
     def _load_data(self):
         with open(os.path.join(self.data_dir, self.data_file), 'r') as file:
             self.data = json.load(file)
-    
+
     def _create_data(self):
 
         data = defaultdict(dict)                        #A dictionary
@@ -94,7 +93,7 @@ class PTB(Dataset):
 
                 # Split line into word-tokens with BERT tokenizer
                 words = self.tokenizer.tokenize(line)
-                
+
                 input = ['[CLS]'] + words               #[CLS] in start
                 input = input[:self.max_sequence_length-1] #making so that inputs and targets are missing end and start respectively.
                 input = input + ['[SEP]']
@@ -102,7 +101,7 @@ class PTB(Dataset):
                 target = input.copy()
                 assert len(input) == len(target), "%i, %i"%(len(input), len(target))
                 length = len(input)                     #defining length of sentence
-                
+
                 input.extend(['[PAD]'] * (self.max_sequence_length-length)) #adds padding to end up till max sequence length
                 target.extend(['[PAD]'] * (self.max_sequence_length-length))
 
@@ -117,5 +116,5 @@ class PTB(Dataset):
         with io.open(os.path.join(self.data_dir, self.data_file), 'wb') as data_file:
             data = json.dumps(data, ensure_ascii=False)
             data_file.write(data.encode('utf8', 'replace'))
-        
+
         self._load_data()
