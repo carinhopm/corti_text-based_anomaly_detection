@@ -1,4 +1,3 @@
-#This is modified so that input and target are now the same
 import os
 import io
 import json
@@ -105,6 +104,12 @@ class PTB(Dataset):
             for i, line in enumerate(file):             #lineindex, line in file
 
                 words = tokenizer.tokenize(line)        #split line according to tweettokenizer into words.
+
+                # input = ['<sos>'] + words               #<sos> in start
+                # input = input[:self.max_sequence_length] #making so that inputs and targets are missing end and start respectively.
+                #
+                # target = words[:self.max_sequence_length-1]
+                # target = target + ['<eos>']             #<eos> in end
 
                 input = ['<sos>'] + words               #<sos> in start
                 input = input[:self.max_sequence_length-1] #making so that inputs and targets are missing end and start respectively.
