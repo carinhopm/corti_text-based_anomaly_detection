@@ -63,8 +63,8 @@ class SentenceVAE(nn.Module):
         self.relu = nn.ReLU()
         self.drop = nn.Dropout(0.2)
 
-    def encoder(self,input_embedding):
-        packed_input = rnn_utils.pack_padded_sequence(input_embedding, self.sorted_lengths.data.tolist(), batch_first=True)
+    def encoder(self,input_embedding,sorted_lengths):
+        packed_input = rnn_utils.pack_padded_sequence(input_embedding, sorted_lengths.data.tolist(), batch_first=True)
 
         _, hidden = self.encoder_rnn(packed_input)
         #hidden = self.drop(hidden)
@@ -81,7 +81,7 @@ class SentenceVAE(nn.Module):
 
         return mean, logv
 
-    def decoder(self,z):
+    def decoder(self,z,sorted_lengths):
         hidden = self.latent2hidden(z)
         #hidden = self.relu(hidden)
 
@@ -99,7 +99,7 @@ class SentenceVAE(nn.Module):
         decoder_input_embedding = self.embedding(decoder_input_sequence.type(torch.long))
         decoder_input_embedding = self.embedding_dropout(decoder_input_embedding)
 
-        packed_input = rnn_utils.pack_padded_sequence(decoder_input_embedding, self.sorted_lengths.data.tolist(), batch_first=True)
+        packed_input = rnn_utils.pack_padded_sequence(decoder_input_embedding, sorted_lengths.data.tolist(), batch_first=True)
 
         # decoder forward pass
         outputs, _ = self.decoder_rnn(packed_input, hidden)
@@ -122,8 +122,10 @@ class SentenceVAE(nn.Module):
             for token in line: #For each token in the sentence...
                 sum_vec = torch.sum(token[-4:], dim=0) #Sum the vectors from the last four layers
                 token_vecs_sum.append(sum_vec) #Use `sum_vec` to represent `token`
+            token_vecs_sum = torch.cat(token_vecs_sum, dim=0)
             input_embedding.append(token_vecs_sum) #Use `token_vecs_sum` to represent `line`
-        mean, logv = self.encoder(input_embedding)
+        input_embedding = torch.cat(input_embedding, dim=0)
+        mean, logv = self.encoder(input_embedding, sorted_lengths)
 
         std = torch.exp(0.5 * logv)
 
@@ -131,7 +133,7 @@ class SentenceVAE(nn.Module):
         z = eps * std + mean #This is creating a number from the distribution, nice
 
         # DECODER
-        outputs = self.decoder(z)
+        outputs = self.decoder(z, sorted_lengths)
 
         # process outputs
         padded_outputs = rnn_utils.pad_packed_sequence(outputs, batch_first=True)[0]
