@@ -5,6 +5,7 @@ import torch
 import argparse
 import numpy as np
 from multiprocessing import cpu_count
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2" 
 from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
 from collections import OrderedDict, defaultdict
