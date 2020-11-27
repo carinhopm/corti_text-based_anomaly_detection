@@ -103,7 +103,7 @@ class SentenceVAE(nn.Module):
         return mean, logv
 
     def decoder(self,z,batch_size,sorted_lengths):
-        hidden2 = self.latent2hidden(z)
+        hidden2 = self.latent2hidden2(z)
         #hidden = self.relu(hidden)
         hidden = self.decoder_hid2(hidden2)
 
@@ -173,7 +173,7 @@ class SentenceVAE(nn.Module):
         else:
             batch_size = z.size(0)
 
-        hidden = self.latent2hidden(z)
+        hidden = self.latent2hidden2(z)
 
         if self.bidirectional or self.num_layers > 1:
             # unflatten hidden state
