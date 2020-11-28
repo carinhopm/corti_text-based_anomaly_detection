@@ -205,8 +205,8 @@ if __name__ == '__main__':
 
     parser.add_argument('--data_dir', type=str, default='data')
     parser.add_argument('--create_data', action='store_true')
-    parser.add_argument('--max_sequence_length', type=int, default=60)
-    parser.add_argument('--min_occ', type=int, default=1)
+    parser.add_argument('--max_sequence_length', type=int, default=30)
+    parser.add_argument('--min_occ', type=int, default=1) # It's not been used
     parser.add_argument('--test', action='store_true')
 
     parser.add_argument('-ep', '--epochs', type=int, default=1)
@@ -214,8 +214,8 @@ if __name__ == '__main__':
     parser.add_argument('-lr', '--learning_rate', type=float, default=0.001)
 
     # For BERT pre-trained model hyperparameters check: https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-config.json
-    parser.add_argument('-vs', '--vocab_size', type=int, default=30522)
-    parser.add_argument('-eb', '--embedding_size', type=int, default=768)
+    parser.add_argument('-vs', '--vocab_size', type=int, default=30522) # Cannot be changed for the moment
+    parser.add_argument('-eb', '--embedding_size', type=int, default=768) # Cannot be changed for the moment
     parser.add_argument('-rnn', '--rnn_type', type=str, default='gru')
     parser.add_argument('-hs', '--hidden_size', type=int, default=256)
     parser.add_argument('-nl', '--num_layers', type=int, default=1)

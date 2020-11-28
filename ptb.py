@@ -88,7 +88,7 @@ class PTB(Dataset):
     def _create_data(self):
 
         data = defaultdict(dict)                        #A dictionary
-        with open(self.raw_data_path, 'r') as file:     #Opens datafile
+        with io.open(self.raw_data_path, mode='r', encoding='utf-8') as file:     #Opens datafile
 
             for i, line in enumerate(file):             #lineindex, line in file
 
