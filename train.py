@@ -64,25 +64,30 @@ def main(args):
     )
     model = SentenceVAE(**params)
 
+    ##Checks if CUDA is available (GPU)
     if torch.cuda.is_available():
         model = model.cuda()
 
     print(model)
+    ## Path to save the model
     model_save_folder = "Saved_models"
     dump_folder = "dump"
 
+    ## Initializing the logging component
     if args.tensorboard_logging:
         writer = SummaryWriter(os.path.join(args.logdir, expierment_name(args, ts)))
         writer.add_text("model", str(model))
         writer.add_text("args", str(args))
         writer.add_text("ts", ts)
 
+    ## Constructing the path to the save the model
     #save_model_path = os.path.join(args.save_model_path, ts)
     save_model_path = args.save_model_path + "/" + model_save_folder
 
     #os.makedirs(save_model_path)
     #os.mkdir(save_model_path)
 
+    ## Saving the model
     with open(os.path.join(save_model_path, 'model_params.json'), 'w') as f:
         json.dump(params, f, indent=4)
 
@@ -93,6 +98,8 @@ def main(args):
             return min(1, step/x0)
 
     NLL = torch.nn.NLLLoss(ignore_index=datasets['train'].pad_idx, reduction='sum')
+    
+    ## Defining the loss function
     def loss_fn(logp, target, length, mean, logv, anneal_function, step, k, x0):
 
         # cut-off unnecessary padding from target, and flatten
@@ -113,7 +120,11 @@ def main(args):
     tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.Tensor
     #tensor = torch.cuda.FloatTensor if False else torch.Tensor
     step = 0
+    
+    print('Starting to train')
     for epoch in range(args.epochs):
+        
+        print('Handling epoch number: {}'.format(epoch))
 
         for split in splits:
 
@@ -133,6 +144,7 @@ def main(args):
             else:
                 model.eval()
 
+            ## Iterating through data loader and handling batches
             for iteration, batch in enumerate(data_loader):
 
                 batch_size = batch['input'].size(0)
@@ -166,6 +178,7 @@ def main(args):
                                       epoch*len(data_loader) + iteration)
                     writer.add_scalar("%s/KL Loss" % split.upper(), KL_loss.item() / batch_size,
                                       epoch*len(data_loader) + iteration)
+                    #print('split: ',split.upper(), 'KL_weight: ', KL_weight )
                     writer.add_scalar("%s/KL Weight" % split.upper(), KL_weight,
                                       epoch*len(data_loader) + iteration)
 
@@ -177,8 +190,8 @@ def main(args):
                 if split == 'valid':
                     if 'target_sents' not in tracker:
                         tracker['target_sents'] = list()
-                    tracker['target_sents'] += datasets['train'].idx2word(batch['target'].data, pad_idx=datasets['train'].pad_idx)
-                    tracker['z'] = torch.cat((tracker['z'], z.data), dim=0)
+                    #tracker['target_sents'] += datasets['valid'].idx2word(batch['target'].data, pad_idx=datasets['valid'].pad_idx)
+                    #tracker['z'] = torch.cat((tracker['z'], z.data), dim=0)
 
             print("%s Epoch %02d/%i, Mean ELBO %9.4f" % (split.upper(), epoch, args.epochs, tracker['ELBO'].mean()))
 
@@ -203,7 +216,8 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--data_dir', type=str, default='data')
+    ##parser.add_argument('--data_dir', type=str, default='data')
+    parser.add_argument('--data_dir', type=str, default='data/publicTweetsShort2')
     parser.add_argument('--create_data', action='store_true')
     parser.add_argument('--max_sequence_length', type=int, default=30)
     parser.add_argument('--min_occ', type=int, default=1) # It's not been used
