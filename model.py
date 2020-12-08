@@ -45,25 +45,30 @@ class SentenceVAE(nn.Module):
         #     rnn = nn.LSTM
         else:
             raise ValueError()
-        
+
         self.hidden_factor = (2 if bidirectional else 1) * self.num_layers
 
-        self.encoder_embedding_BN = nn.BatchNorm1d(embedding_size)
         self.encoder_rnn = rnn(embedding_size, hidden_size, num_layers=self.num_layers, bidirectional=self.bidirectional,
                                batch_first=True)
-        self.encoder_rnn_BN = nn.BatchNorm1d(hidden_size*self.hidden_factor)
-        self.decoder_rnn = rnn(embedding_size, hidden_size, num_layers=self.num_layers, bidirectional=self.bidirectional,
-                               batch_first=True)
-        self.decoder_rnn_BN = nn.BatchNorm1d(hidden_size*self.hidden_factor) #Sucked
+
+        self.hiddenAfterEncoder = nn.Linear(hidden_size * self.hidden_factor,hidden_size * self.hidden_factor)
+
+        self.dropoutBeforeLatent = nn.Dropout(0.5)
+
+        self.fullDropout = nn.Dropout(1)
+
 
         self.hidden2mean = nn.Linear(hidden_size * self.hidden_factor, latent_size)
         self.hidden2logv = nn.Linear(hidden_size * self.hidden_factor, latent_size)
-        self.latent2hidden = nn.Linear(latent_size, hidden_size * self.hidden_factor)
-        self.latent2hidden_BN = nn.BatchNorm1d(hidden_size)
-        self.outputs2vocab = nn.Linear(hidden_size * self.hidden_factor, vocab_size)
 
-        self.relu = nn.ReLU()
-        self.drop = nn.Dropout(0.2)
+        self.latent2hidden = nn.Linear(latent_size, hidden_size * self.hidden_factor)
+
+        self.decoder_hidden_BN = nn.BatchNorm1d(hidden_size*self.hidden_factor)
+
+        self.decoder_rnn = rnn(embedding_size, hidden_size, num_layers=self.num_layers, bidirectional=self.bidirectional,
+                               batch_first=True)
+
+        self.outputs2vocab = nn.Linear(hidden_size * (2 if bidirectional else 1), vocab_size)
 
     def encoder(self,input_embedding,batch_size,sorted_lengths):
         packed_input = rnn_utils.pack_padded_sequence(input_embedding, sorted_lengths.data.tolist(), batch_first=True)
@@ -76,7 +81,10 @@ class SentenceVAE(nn.Module):
             hidden = hidden.view(batch_size, self.hidden_size*self.hidden_factor)
         else:
             hidden = hidden.view(batch_size, self.hidden_size)
-        hidden = self.encoder_rnn_BN(hidden)
+
+        hidden = self.hiddenAfterEncoder(hidden)
+
+        hidden = self.dropoutBeforeLatent(hidden)
 
         mean = self.hidden2mean(hidden)
         logv = self.hidden2logv(hidden)
@@ -94,7 +102,7 @@ class SentenceVAE(nn.Module):
             hidden = hidden.unsqueeze(0)
 
         #hidden = self.drop(hidden)
-        hidden = self.latent2hidden_BN(hidden.permute(1,2,0)).permute(2,0,1).contiguous()
+        #hidden = self.latent2hidden_BN(hidden.permute(1,2,0)).permute(2,0,1).contiguous()
 
         decoder_input_sequence = to_var(torch.Tensor(batch_size,self.max_sequence_length).fill_(self.sos_idx).long())
 
@@ -108,7 +116,7 @@ class SentenceVAE(nn.Module):
 
         return outputs
 
-    def forward(self, input_sequence, length):        
+    def forward(self, input_sequence, length):
         batch_size = input_sequence.size(0)
         sorted_lengths, sorted_idx = torch.sort(length, descending=True)
         input_sequence = input_sequence[sorted_idx]
@@ -129,7 +137,7 @@ class SentenceVAE(nn.Module):
         # process outputs
         padded_outputs = rnn_utils.pad_packed_sequence(outputs, batch_first=True)[0]
         padded_outputs = padded_outputs.contiguous()
-        padded_outputs = self.drop(padded_outputs)
+        # padded_outputs = self.drop(padded_outputs)
         _,reversed_idx = torch.sort(sorted_idx)
         padded_outputs = padded_outputs[reversed_idx]
         b,s,_ = padded_outputs.size()
@@ -224,4 +232,3 @@ class SentenceVAE(nn.Module):
         save_to[running_seqs] = running_latest
 
         return save_to
-    
