@@ -91,7 +91,7 @@ class SentenceVAE(nn.Module):
 
         return mean, logv
 
-    def decoder(self,z,batch_size,sorted_lengths):
+    def decoder(self,z,batch_size,sorted_lengths,input_embedding):
         hidden = self.latent2hidden(z)
         #hidden = self.relu(hidden)
 
@@ -104,10 +104,9 @@ class SentenceVAE(nn.Module):
         #hidden = self.drop(hidden)
         #hidden = self.latent2hidden_BN(hidden.permute(1,2,0)).permute(2,0,1).contiguous()
 
-        decoder_input_sequence = to_var(torch.Tensor(batch_size,self.max_sequence_length).fill_(self.sos_idx).long())
+        decoder_input_embedding = torch.clone(input_embedding)
 
-        decoder_input_embedding = self.embedding_model(decoder_input_sequence.to(torch.int64))
-        decoder_input_embedding = self.embedding_dropout(decoder_input_embedding[0])
+        decoder_input_embedding = self.embedding_dropout(decoder_input_embedding)
 
         packed_input = rnn_utils.pack_padded_sequence(decoder_input_embedding, sorted_lengths.data.tolist(), batch_first=True)
 
@@ -132,7 +131,7 @@ class SentenceVAE(nn.Module):
         z = eps * std + mean #This is creating a number from the distribution, nice
 
         # DECODER
-        outputs = self.decoder(z, batch_size, sorted_lengths)
+        outputs = self.decoder(z, batch_size, sorted_lengths,embedding_output[0])
 
         # process outputs
         padded_outputs = rnn_utils.pad_packed_sequence(outputs, batch_first=True)[0]
